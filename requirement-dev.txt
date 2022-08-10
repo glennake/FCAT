@@ -1,0 +1,10 @@
+keyring
+nuitka
+openpyxl
+PyPDF2==1.27.5
+PySimpleGUI
+requests
+sphinx
+sphinx-autoapi
+sphinx-rtd-theme
+traceback-with-variables

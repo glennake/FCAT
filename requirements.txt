@@ -1,0 +1,6 @@
+keyring
+openpyxl
+PyPDF2==1.27.5
+PySimpleGUI
+requests
+traceback-with-variables
