@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 
-# Title: Fortinet Contract Automation Tool (FCAT)
-#
-# Description: Fortinet Contract Automation Tool (FCAT) is a Python application to assist
-#              with bulk parsing of Fortinet contract ZIP files and the registration of
-#              Fortinet products and services using Fortinet's FortiCare API.
-
 __all__ = ["FCAT_UI", "FortiCRP", "FortiCareAPI"]
 __author__ = "Glenn Akester (@glennake)"
+__description__ = "Fortinet Contract Automation Tool (FCAT) is a Python application to assist \
+with bulk parsing of Fortinet contract ZIP files and the registration \
+of Fortinet products and services using Fortinet's FortiCare API."
+__title__ = "Fortinet Contract Automation Tool (FCAT)"
 __version_info__ = (0, 1, 0)
 __version__ = ".".join(map(str, __version_info__))
 
@@ -23,6 +21,8 @@ import threading
 import time
 from traceback_with_variables import format_exc
 from zipfile import ZipFile
+
+thread_run = False
 
 
 class FortiCareAPI:
@@ -56,6 +56,49 @@ class FortiCareAPI:
         self.api_refresh_token = None
 
         self.batch_reg_max = 10
+
+        self.api_limit_req_min = 100
+        self.api_req_min = 0
+
+        self.api_limit_req_hr = 1000
+        self.api_req_hr = 0
+
+        self.api_limit_err_hr = 10
+        self.api_err_hr = 0
+
+    def _check_rate_limits(self, req_len):
+        if (
+            self.api_err_hr >= self.api_limit_err_hr
+        ):  # TODO: Enhance as this does not actually check if all errors were in the last 60 minutes
+            time.sleep(
+                3600
+            )  # TODO: Add some feedback here so the user knows we are pausing requests
+            self.api_err_hr = 0
+            self.api_req_hr = 0
+            self.api_req_min = 0
+        elif (
+            self.api_req_hr + req_len
+        ) >= self.api_limit_req_hr:  # TODO: Enhance as this does not actually check if all requests were in the last 60 minutes
+            time.sleep(
+                3600
+            )  # TODO: Add some feedback here so the user knows we are pausing requests
+            self.api_err_hr = 0
+            self.api_req_hr = 0
+            self.api_req_min = 0
+        elif (
+            self.api_req_min + req_len
+        ) >= self.api_limit_req_min:  # TODO: Enhance as this does not actually check if all requests were in the last 1 minute
+            time.sleep(
+                60
+            )  # TODO: Add some feedback here so the user knows we are pausing requests
+            self.api_req_min = 0
+
+    def _increment_rate_limits(self, increment=1, error=False, error_increment=1):
+        self.api_req_min += increment
+        self.api_req_hr += increment
+
+        if error == True:
+            self.api_err_hr += increment
 
     def get_oauth_token(self):
         """Authenticates to the FortiCare API and stores the received bearer token.
@@ -171,7 +214,9 @@ class FortiCareAPI:
         asset_len = len(assets)
 
         if asset_len <= self.batch_reg_max:
-            data = self.json.dumps({"registrationUnits": assets})
+            data = self.json.dumps(
+                {"registrationUnits": assets}
+            )  # TODO: Add support for registration without contract number, ideally with a warning for products that do not have contracts bundled (all but FortiGate?)
 
             r_sc = 0
             r_json = None
@@ -216,6 +261,246 @@ class FortiCareAPI:
                         "gbl_status": r_json["status"],
                         "gbl_message": r_json["message"],
                     }
+
+            else:
+                yield {
+                    "serialNumber": None,
+                    "description": None,
+                    "contractNumber": None,
+                    "status": None,
+                    "message": None,
+                    "gbl_status": 2,
+                    "gbl_message": r_json["message"],
+                }
+
+    def registration_check(self, assets):
+        """Checks if Fortinet assets are already registered, from a list of dictionaries containing asset information, using the FortiCare API.
+
+        Parameters
+        ----------
+        assets : list
+            List of dictionaries containing asset data::
+            
+                [
+                    {
+                        'serialNumber': "S424ENTF10001234",
+                        'contractNumber': "1234AB567891",
+                        'description': "MYFSW1",
+                        'isGovernment': false,
+                    }
+                ]
+
+        Yields
+        ------
+        dict
+            Dictionary containing True if registered, False if not registered, checked serial number string, description match bool, contract match bool, additional contracts list, and message string with the details::
+
+            {
+                "registered": True,
+                "serialNumber": "S424ENTF10001234",
+                "contractMatch": True,
+                "descriptionMatch": True,
+                "extraContracts": ["1234AB567892"],
+                "message": "Serial number S424ENTF10001234 is already registered, description MYFSW1 matches, contract 1234AB567891 matches, additional contracts 1234AB567892 are also associated with this asset."
+            }
+        """
+
+        sn_match = False
+        desc_match = False
+        api_desc = ""
+        ctrct_match = False
+        extra_ctrcts = []
+
+        url = self.api_base + "products/list"
+
+        headers = {
+            "Authorization": "Bearer {}".format(self.api_token),
+            "Content-Type": "application/json",
+        }
+
+        for a in assets:
+            data = self.json.dumps({"serialNumber": a["serialNumber"]})
+
+            r_sc = 0
+            r_json = None
+
+            try:
+                r = self.requests.post(url, headers=headers, data=data)
+                r_sc = r.status_code
+                r_json = self.json.loads(r.text)
+            except:
+                r = None
+
+            if r_json and r_sc in [200]:
+                if "assets" in r_json and r_json["assets"]:
+                    if a["serialNumber"] == r_json["assets"][0]["serialNumber"]:
+                        sn_match = True
+
+                        if a["description"] == r_json["assets"][0]["description"]:
+                            desc_match = True
+                        else:
+                            api_desc = r_json["assets"][0]["description"]
+
+                        if (
+                            "contracts" in r_json["assets"][0]
+                            and r_json["assets"][0]["contracts"]
+                        ):
+                            for c in r_json["assets"][0]["contracts"]:
+                                if a["contractNumber"] == c["contractNumber"]:
+                                    ctrct_match = True
+                                else:
+                                    extra_ctrcts.append(c["contractNumber"])
+
+            output_text = ""
+
+            if sn_match == True:
+                output_text = "Serial number {} is already registered".format(
+                    a["serialNumber"]
+                )
+
+                if desc_match == True:
+                    output_text += ", description {} matches".format(a["description"])
+                else:
+                    output_text += ", description {} does not match".format(api_desc)
+
+                if ctrct_match == True:
+                    output_text += ", contract {} matches".format(a["contractNumber"])
+
+                    if extra_ctrcts:
+                        output_text += ", additional contracts {} are also associated with this asset".format(
+                            ", ".join(extra_ctrcts)
+                        )
+                else:
+                    output_text += ", contract {} does not match".format(
+                        a["contractNumber"]
+                    )
+
+                    if extra_ctrcts:
+                        output_text += ", contracts {} are associated with this asset".format(
+                            ", ".join(extra_ctrcts)
+                        )
+
+                yield {
+                    "registered": True,
+                    "serialNumber": a["serialNumber"],
+                    "contractMatch": ctrct_match,
+                    "descriptionMatch": desc_match,
+                    "extraContracts": extra_ctrcts,
+                    "message": output_text + ".\n",
+                }
+
+            else:
+
+                yield {
+                    "registered": False,
+                    "serialNumber": a["serialNumber"],
+                    "contractMatch": ctrct_match,
+                    "descriptionMatch": desc_match,
+                    "extraContracts": extra_ctrcts,
+                    "message": "SN not found.\n",
+                }
+
+    def add_contract(self, sn, ctrct):
+        """Registers a contract against an existing asset using the FortiCare API.
+
+        Parameters
+        ----------
+        sn : str
+            Serial number of the asset to update.
+        ctrct : str
+            Contract registration code to register against the asset.
+
+        Returns
+        -------
+        tuple
+            Tuple of two values - successful/unsuccessful bool, message str::
+            (
+                True,
+                "Success"
+            )
+        """
+
+        # ? Should a check be added here to ensure the asset is already registered as this will register the asset if it does not exist already
+
+        url = self.api_base + "products/register"
+
+        headers = {
+            "Authorization": "Bearer {}".format(self.api_token),
+            "Content-Type": "application/json",
+        }
+
+        data = self.json.dumps(
+            {"registrationUnits": [{"serialNumber": sn, "contractNumber": ctrct}]}
+        )
+
+        r_sc = 0
+        r_json = None
+
+        try:
+            r = self.requests.post(url, headers=headers, data=data)
+            r_sc = r.status_code
+            r_json = self.json.loads(r.text)
+        except:
+            r = None
+
+        if r_json and r_sc in [200]:
+            if r_json["status"] == 0:
+                return True, r_json["message"]  # Success
+
+            else:
+                return False, r_json["message"]  # API returned an error
+
+        if r_json and "message" in r_json and r_json["message"]:
+            return False, "API Error - {}".format(r_json["message"])
+
+        return False, "API error"  # If we get here, API call probably failed
+
+    def update_description(self, sn, desc):
+        """Updates the description of an asset using the FortiCare API.
+
+        Parameters
+        ----------
+        sn : str
+            Serial number of the asset to update.
+        desc : str
+            New description for the asset.
+
+        Returns
+        -------
+        bool
+            True if successful, False if unsuccessful.
+        """
+
+        url = self.api_base + "products/description"
+
+        headers = {
+            "Authorization": "Bearer {}".format(self.api_token),
+            "Content-Type": "application/json",
+        }
+
+        data = self.json.dumps({"serialNumber": sn, "description": desc})
+
+        r_sc = 0
+        r_json = None
+
+        try:
+            r = self.requests.post(url, headers=headers, data=data)
+            r_sc = r.status_code
+            r_json = self.json.loads(r.text)
+        except:
+            r = None
+
+        if r_json and r_sc in [200]:
+            if r_json["status"] == 0:
+                return True, r_json["message"]  # Success
+
+            else:
+                return False, r_json["message"]  # API returned an error
+
+        if r_json and "message" in r_json and r_json["message"]:
+            return False, "API Error - {}".format(r_json["message"])
+
+        return False, "API error"  # If we get here, API call probably failed
 
 
 class FortiCRP:
@@ -398,14 +683,10 @@ def FCAT_UI():
     thread_key_feedback = "-THREADFEEDBACK-"
     thread_key_end = "-THREADEND-"
 
+    global thread_run
+
     def _column_collapse(layout, key, element_justification="center", visible=True):
-        """
-        Helper function that creates a Column that can be later made hidden, thus appearing "collapsed"
-        :param layout: The layout for the section
-        :param key: Key used to make this seciton visible / invisible
-        :return: A pinned column that can be placed directly into your layout
-        :rtype: sg.pin
-        """
+
         return sg.pin(
             sg.Column(
                 layout,
@@ -506,14 +787,14 @@ def FCAT_UI():
                 for cell in row:
                     row_vals.append(cell.value)
 
-                if data_format == "nosku":
-                    row_data["serialNumber"] = row_vals[0]
-                    row_data["contractNumber"] = row_vals[1]
-                    row_data["description"] = row_vals[2]
-                elif data_format == "sku":
-                    row_data["serialNumber"] = row_vals[1]
-                    row_data["contractNumber"] = row_vals[2]
-                    row_data["description"] = row_vals[3]
+                if data_format == "nosku" and len(row_vals) >= 3:
+                    row_data["serialNumber"] = row_vals[0].strip()
+                    row_data["contractNumber"] = row_vals[1].strip()
+                    row_data["description"] = row_vals[2].strip()
+                elif data_format == "sku" and len(row_vals) >= 4:
+                    row_data["serialNumber"] = row_vals[1].strip()
+                    row_data["contractNumber"] = row_vals[2].strip()
+                    row_data["description"] = row_vals[3].strip()
 
                 yield row_data
 
@@ -534,14 +815,14 @@ def FCAT_UI():
 
                     row_data = {}
 
-                    if data_format == "nosku":
-                        row_data["serialNumber"] = row[0]
-                        row_data["contractNumber"] = row[1]
-                        row_data["description"] = row[2]
-                    elif data_format == "sku":
-                        row_data["serialNumber"] = row[1]
-                        row_data["contractNumber"] = row[2]
-                        row_data["description"] = row[3]
+                    if data_format == "nosku" and len(row) >= 3:
+                        row_data["serialNumber"] = row[0].strip()
+                        row_data["contractNumber"] = row[1].strip()
+                        row_data["description"] = row[2].strip()
+                    elif data_format == "sku" and len(row) >= 4:
+                        row_data["serialNumber"] = row[1].strip()
+                        row_data["contractNumber"] = row[2].strip()
+                        row_data["description"] = row[3].strip()
 
                     yield row_data
 
@@ -605,42 +886,159 @@ def FCAT_UI():
 
                 for asset in _parse_data_file(data_file):
 
-                    if len(assets_buffer) < assets_buffer_size:
-                        assets_buffer.append(
-                            {
-                                "serialNumber": asset["serialNumber"],
-                                "contractNumber": asset["contractNumber"],
-                                "description": asset["description"],
-                                "isGovernment": is_govt,
-                            }
-                        )
+                    if all(
+                        k in asset
+                        for k in ("serialNumber", "contractNumber", "description")
+                    ):
 
-                    else:
-                        for regd in fcapi.register_assets(assets_buffer):
-                            (
-                                prr_output_text,
-                                prr_regd_asset_counter,
-                            ) = _process_reg_response(regd)
+                        asset_data = {
+                            "serialNumber": asset["serialNumber"],
+                            "contractNumber": asset["contractNumber"],
+                            "description": asset["description"],
+                            "isGovernment": is_govt,
+                        }
 
-                            window.write_event_value(
-                                thread_key_feedback, prr_output_text,
-                            )
+                        if len(assets_buffer) < assets_buffer_size:
 
-                            regd_asset_counter += prr_regd_asset_counter
+                            for reg_chk in fcapi.registration_check([asset_data]):
 
-                        assets_buffer = []
-                        assets_buffer.append(
-                            {
-                                "serialNumber": asset["serialNumber"],
-                                "contractNumber": asset["contractNumber"],
-                                "description": asset["description"],
-                                "isGovernment": is_govt,
-                            }
-                        )
+                                if reg_chk["registered"] == False:
+                                    assets_buffer.append(asset_data)
+                                else:
+                                    window.write_event_value(
+                                        thread_key_feedback, reg_chk["message"],
+                                    )
 
-                    asset_counter += 1
+                                    if reg_chk["descriptionMatch"] == False:
+                                        upd_desc, ud_msg = fcapi.update_description(
+                                            asset_data["serialNumber"],
+                                            asset_data["description"],
+                                        )
 
-                if len(assets_buffer) != 0:
+                                        if upd_desc:
+                                            window.write_event_value(
+                                                thread_key_feedback,
+                                                "     └ Updated description to {} for {}.\n".format(
+                                                    asset_data["description"],
+                                                    asset_data["serialNumber"],
+                                                ),
+                                            )
+                                        else:
+                                            window.write_event_value(
+                                                thread_key_feedback,
+                                                "     └ Failed to update description to {} for {}: {}.\n".format(
+                                                    asset_data["description"],
+                                                    asset_data["serialNumber"],
+                                                    ud_msg,
+                                                ),
+                                            )
+
+                                    if reg_chk["contractMatch"] == False:
+                                        add_ctrct, ac_msg = fcapi.add_contract(
+                                            asset_data["serialNumber"],
+                                            asset_data["contractNumber"],
+                                        )
+
+                                        if add_ctrct:
+                                            window.write_event_value(
+                                                thread_key_feedback,
+                                                "     └ Added contract {} to {}.\n".format(
+                                                    asset_data["contractNumber"],
+                                                    asset_data["serialNumber"],
+                                                ),
+                                            )
+
+                                        else:
+                                            window.write_event_value(
+                                                thread_key_feedback,
+                                                "     └ Failed to add contract {} to {}: {}.\n".format(
+                                                    asset_data["contractNumber"],
+                                                    asset_data["serialNumber"],
+                                                    ac_msg,
+                                                ),
+                                            )
+
+                        else:
+
+                            for regd in fcapi.register_assets(assets_buffer):
+                                (
+                                    prr_output_text,
+                                    prr_regd_asset_counter,
+                                ) = _process_reg_response(regd)
+
+                                window.write_event_value(
+                                    thread_key_feedback, prr_output_text,
+                                )
+
+                                regd_asset_counter += prr_regd_asset_counter
+
+                            assets_buffer = []
+
+                            for reg_chk in fcapi.registration_check([asset_data]):
+
+                                if reg_chk["registered"] == False:
+                                    assets_buffer.append(asset_data)
+                                else:
+                                    window.write_event_value(
+                                        thread_key_feedback, reg_chk["message"],
+                                    )
+
+                                    if reg_chk["descriptionMatch"] == False:
+                                        upd_desc, ud_msg = fcapi.update_description(
+                                            asset_data["serialNumber"],
+                                            asset_data["description"],
+                                        )
+
+                                        if upd_desc:
+                                            window.write_event_value(
+                                                thread_key_feedback,
+                                                "     └ Updated description to {} for {}.\n".format(
+                                                    asset_data["description"],
+                                                    asset_data["serialNumber"],
+                                                ),
+                                            )
+                                        else:
+                                            window.write_event_value(
+                                                thread_key_feedback,
+                                                "     └ Failed to update description to {} for {}: {}.\n".format(
+                                                    asset_data["description"],
+                                                    asset_data["serialNumber"],
+                                                    ud_msg,
+                                                ),
+                                            )
+
+                                    if reg_chk["contractMatch"] == False:
+                                        add_ctrct, ac_msg = fcapi.add_contract(
+                                            asset_data["serialNumber"],
+                                            asset_data["contractNumber"],
+                                        )
+
+                                        if add_ctrct:
+                                            window.write_event_value(
+                                                thread_key_feedback,
+                                                "     └ Added contract {} to {}.\n".format(
+                                                    asset_data["contractNumber"],
+                                                    asset_data["serialNumber"],
+                                                ),
+                                            )
+
+                                        else:
+                                            window.write_event_value(
+                                                thread_key_feedback,
+                                                "     └ Failed to add contract {} to {}: {}.\n".format(
+                                                    asset_data["contractNumber"],
+                                                    asset_data["serialNumber"],
+                                                    ac_msg,
+                                                ),
+                                            )
+
+                        asset_counter += 1
+
+                    if thread_run == False:
+                        break
+
+                if thread_run == True and len(assets_buffer) != 0:
+
                     for regd in fcapi.register_assets(assets_buffer):
                         (
                             prr_output_text,
@@ -658,6 +1056,11 @@ def FCAT_UI():
                     "################## END PARSED ASSETS ##################\n\n",
                 )
 
+                if thread_run == False:
+                    window.write_event_value(
+                        thread_key_feedback, "Terminated thread at user request.\n\n",
+                    )
+
                 window.write_event_value(
                     thread_key_feedback,
                     "Parsing complete - {} assets found, {} assets registered.\n".format(
@@ -669,11 +1072,11 @@ def FCAT_UI():
 
             else:
                 output_text = "Authentication to FortiCare API failed.\n"
-                window["OUTPUT"].update(value=output_text)
+                window["OUTPUT"].update(value=output_text, autoscroll=True)
 
         else:
             output_text = "Need to provide FortiCare API credentials before assets can be registered.\n"
-            window["OUTPUT"].update(value=output_text)
+            window["OUTPUT"].update(value=output_text, autoscroll=True)
 
     def _save_output_to_file(out_file, out_text):
 
@@ -694,7 +1097,7 @@ def FCAT_UI():
             [
                 sg.Text(
                     "Select a directory containing Fortinet contract ZIP files to parse...",
-                    size=(80, 1),
+                    size=(120, 1),
                     justification="center",
                 )
             ],
@@ -727,7 +1130,7 @@ def FCAT_UI():
             [
                 sg.Text(
                     "Select a CSV or XLSX data file containing assets to register...",
-                    size=(80, 1),
+                    size=(120, 1),
                     justification="center",
                 )
             ],
@@ -742,7 +1145,10 @@ def FCAT_UI():
                     key="ISGOVT",
                 )
             ],
-            [sg.Button("Register Assets")],
+            [
+                sg.Button("Stop Registration", button_color=("red", "white")),
+                sg.Button("Register Assets"),
+            ],
             [sg.T("")],
         ]
 
@@ -774,7 +1180,7 @@ def FCAT_UI():
         elements += [
             [sg.T("")],
             [sg.Text("Output")],
-            [sg.Multiline("", key="OUTPUT", size=(80, 5), disabled=True)],
+            [sg.Multiline("", key="OUTPUT", size=(120, 15), disabled=True)],
             [
                 sg.Button("Clear Output", button_color=("orange", "white")),
                 sg.InputText(
@@ -882,11 +1288,13 @@ def FCAT_UI():
         elif event == thread_key_feedback:
 
             output_text = output_text + values[thread_key_feedback]
-            window["OUTPUT"].update(value=output_text)
+            window["OUTPUT"].update(value=output_text, autoscroll=True)
 
         elif event == "Parse Contracts":
 
             license_dir = values["LICDIR"]
+
+            written_contracts = []
 
             try:
                 output_file = _csv_initialise(license_dir)
@@ -901,12 +1309,22 @@ def FCAT_UI():
                 )
 
                 for rc, sku in fcrp.get_registration_codes():
-                    _csv_write_contract(output_file, sku, rc)
-                    output_text = (
-                        output_text
-                        + "Parsed registration code {} for SKU {}\n".format(rc, sku)
-                    )
-                    window["OUTPUT"].update(value=output_text)
+                    if rc not in written_contracts:
+                        _csv_write_contract(output_file, sku, rc)
+                        written_contracts.append(rc)
+                        output_text = (
+                            output_text
+                            + "Parsed registration code {} for SKU {}\n".format(rc, sku)
+                        )
+                        window["OUTPUT"].update(value=output_text, autoscroll=True)
+                    else:
+                        output_text = (
+                            output_text
+                            + "WARNING: Duplicate registration code {} for SKU {}\n".format(
+                                rc, sku
+                            )
+                        )
+                        window["OUTPUT"].update(value=output_text, autoscroll=True)
 
             except Exception as e:
                 sg.Popup(
@@ -919,10 +1337,10 @@ def FCAT_UI():
                 output_text
                 + "################## END PARSED LICENSES ##################\n\n"
             )
-            window["OUTPUT"].update(value=output_text)
+            window["OUTPUT"].update(value=output_text, autoscroll=True)
 
             output_text = output_text + "Parser output: {}".format(output_file)
-            window["OUTPUT"].update(value=output_text)
+            window["OUTPUT"].update(value=output_text, autoscroll=True)
 
         elif event == "Generate Template":
 
@@ -949,14 +1367,24 @@ def FCAT_UI():
             is_govt = values["ISGOVT"]
 
             output_text = "Starting registration thread\n"
-            window["OUTPUT"].update(value=output_text)
+            window["OUTPUT"].update(value=output_text, autoscroll=True)
+
+            thread_run = True
 
             window.start_thread(
                 lambda: _process_gui_registration(
-                    window, data_file, is_govt, fcat_creds_user, fcat_creds_pass
+                    window, data_file, is_govt, fcat_creds_user, fcat_creds_pass,
                 ),
                 thread_key_end,
             )
+
+        elif event == "Stop Registration":
+
+            if thread_run:
+                thread_run = False
+                sg.Popup("Stopping registration thread on next loop.")
+            else:
+                sg.Popup("Registration thread is not running.")
 
         elif event == "Clear Output":
 
@@ -1011,7 +1439,8 @@ def FCAT_UI():
         elif event == "About":
 
             sg.popup(
-                FCAT_UI.__doc__,
+                __title__,
+                __description__,
                 "Version: {}".format(__version__),
                 "Author: {}".format(__author__),
                 title="About",

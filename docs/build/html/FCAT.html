@@ -146,6 +146,35 @@ Fortinet products and services using Fortinet’s FortiCare API.</p>
 </dd>
 </dl>
 <dl class="py method">
+<dt class="sig sig-object py" id="FCAT.FortiCareAPI.add_contract">
+<span class="sig-name descname"><span class="pre">add_contract</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sn</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctrct</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#FCAT.FortiCareAPI.add_contract" title="Permalink to this definition"></a></dt>
+<dd><p>Registers a contract against an existing asset using the FortiCare API.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>sn</strong> (<em>str</em>) – Serial number of the asset to update.</p></li>
+<li><p><strong>ctrct</strong> (<em>str</em>) – Contract registration code to register against the asset.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><dl>
+<dt>Tuple of two values - successful/unsuccessful bool, message str::</dt><dd><dl class="simple">
+<dt>(</dt><dd><p>True,
+“Success”</p>
+</dd>
+</dl>
+<p>)</p>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>tuple</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="FCAT.FortiCareAPI.get_oauth_token">
 <span class="sig-name descname"><span class="pre">get_oauth_token</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#FCAT.FortiCareAPI.get_oauth_token" title="Permalink to this definition"></a></dt>
 <dd><p>Authenticates to the FortiCare API and stores the received bearer token.</p>
@@ -197,6 +226,42 @@ Fortinet products and services using Fortinet’s FortiCare API.</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="FCAT.FortiCareAPI.registration_check">
+<span class="sig-name descname"><span class="pre">registration_check</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">assets</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#FCAT.FortiCareAPI.registration_check" title="Permalink to this definition"></a></dt>
+<dd><p>Checks if Fortinet assets are already registered, from a list of dictionaries containing asset information, using the FortiCare API.</p>
+<dl class="field-list">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>assets</strong> (<em>list</em>) – <p>List of dictionaries containing asset data:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span>
+    <span class="p">{</span>
+        <span class="s1">&#39;serialNumber&#39;</span><span class="p">:</span> <span class="s2">&quot;S424ENTF10001234&quot;</span><span class="p">,</span>
+        <span class="s1">&#39;contractNumber&#39;</span><span class="p">:</span> <span class="s2">&quot;1234AB567891&quot;</span><span class="p">,</span>
+        <span class="s1">&#39;description&#39;</span><span class="p">:</span> <span class="s2">&quot;MYFSW1&quot;</span><span class="p">,</span>
+        <span class="s1">&#39;isGovernment&#39;</span><span class="p">:</span> <span class="n">false</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">]</span>
+</pre></div>
+</div>
+</p>
+</dd>
+<dt class="field-even">Yields</dt>
+<dd class="field-even"><p><em>dict</em> –</p>
+<p>Dictionary containing True if registered, False if not registered, checked serial number string, description match bool, contract match bool, additional contracts list, and message string with the details:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+    <span class="s2">&quot;registered&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="s2">&quot;serialNumber&quot;</span><span class="p">:</span> <span class="s2">&quot;S424ENTF10001234&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;contractMatch&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="s2">&quot;descriptionMatch&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="s2">&quot;extraContracts&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;1234AB567892&quot;</span><span class="p">],</span>
+    <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Serial number S424ENTF10001234 is already registered, description MYFSW1 matches, contract 1234AB567891 matches, additional contracts 1234AB567892 are also associated with this asset.&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="FCAT.FortiCareAPI.revoke_oauth_token">
 <span class="sig-name descname"><span class="pre">revoke_oauth_token</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#FCAT.FortiCareAPI.revoke_oauth_token" title="Permalink to this definition"></a></dt>
 <dd><p>Unuthenticates from the FortiCare API.</p>
@@ -206,6 +271,26 @@ Fortinet products and services using Fortinet’s FortiCare API.</p>
 </dd>
 <dt class="field-even">Return type</dt>
 <dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="FCAT.FortiCareAPI.update_description">
+<span class="sig-name descname"><span class="pre">update_description</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sn</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">desc</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#FCAT.FortiCareAPI.update_description" title="Permalink to this definition"></a></dt>
+<dd><p>Updates the description of an asset using the FortiCare API.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>sn</strong> (<em>str</em>) – Serial number of the asset to update.</p></li>
+<li><p><strong>desc</strong> (<em>str</em>) – New description for the asset.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>True if successful, False if unsuccessful.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>bool</p>
 </dd>
 </dl>
 </dd></dl>
