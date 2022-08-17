@@ -9,13 +9,13 @@ Tested on MacOS Monterey and Microsoft Windows 10 21H2
 
 #### Requirements
 
-Python 3.10
-keyring
-openpyxl
-PyPDF2==1.27.5
-PySimpleGUI
-requests
-traceback-with-variables
+- Python 3.10  
+- keyring  
+- openpyxl  
+- PyPDF2==1.27.5  
+- PySimpleGUI  
+- requests  
+- traceback-with-variables  
 
 #### Usage
 
@@ -25,17 +25,17 @@ traceback-with-variables
 
 3. Clone the repository
 
-`git clone https://github.com/glennake/FCAT.git
+```git clone https://github.com/glennake/FCAT.git```
 
 4. Enter the created directory containing the Git repository clone
 
-`cd FCAT
+```cd FCAT```
 
 2. Run FCAT with Python:
 
-`python FCAT/FCAT.py
+```python FCAT/FCAT.py```
 
-### Distibutable
+### Distributable
 
 Tested on Microsoft Windows 10 21H2
 
@@ -57,16 +57,16 @@ Nuitka is cross platform so the build should work on any platforms that it suppo
 
 3. Clone the repository
 
-` git clone https://github.com/glennake/FCAT.git
+```git clone https://github.com/glennake/FCAT.git```
 
 4. Enter the created directory containing the Git repository clone
 
-`cd FCAT
+```cd FCAT```
 
 2. Install all dev requirements using pip:
 
-`pip install -r requirements-dev.txt
+```pip install -r requirements-dev.txt```
 
 3. Run the build process using Nuitka
 
-`python -m nuitka --standalone --onefile --include-module="win32timezone" --include-module="win32cred" --enable-plugin=tk-inter --windows-disable-console --output-dir=dist FCAT/FCAT.py
+```python -m nuitka --standalone --onefile --include-module="win32timezone" --include-module="win32cred" --enable-plugin=tk-inter --windows-disable-console --output-dir=dist FCAT/FCAT.py```
